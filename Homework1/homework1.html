@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <style>
+
+    .column {
+      float: left;
+      height: 300px;
+    }
+    .left, .right {
+      width: 20%;
+      align-content: center;    
+      margin-top: 35px;
+    }
+    .right{
+      margin-top: 30px;
+    }
+    .middle {
+      width: 60%;
+    }
+    .row:after {
+      content: "";
+      display: table;
+      clear: both;
+    }
+
+    .menubutton, #Texture, #Cartoon {
+      background-color: rgb(10, 52, 190);
+      color: white;
+      padding: 14px;
+      font-size: 20px;
+      border-radius: 12px;
+      font-family: Georgia, 'Times New Roman', Times, serif;
+    }
+
+    .Theta, .phi, .Aspect, .Near, .Far {
+      background-color: rgb(10, 52, 190);
+      border: 1px solid rgb(2, 0, 128);
+      color: white;
+      padding: 10px 24px;
+      text-align: center;
+      text-decoration: none;
+      font-size: 16px;
+      cursor: pointer;
+      float: left;
+      width: 100px;
+      font-family: Georgia, 'Times New Roman', Times, serif;
+      margin-top: 25px;
+    }
+    .Theta:not(:last-child), .phi:not(:last-child), .Aspect:not(:last-child), .Near:not(:last-child), .Far:not(:last-child) {
+      border-right: none; /* no double border */
+    }
+    .Theta:hover, .phi:hover, .Aspect:hover, .Far:hover, .Near:hover{
+      background-color: #1a1880;
+    }
+    .phi{
+      margin-bottom: 20px;
+    }
+    .Aspect{
+      margin-bottom: 25px;
+    }
+
+    .slider{
+      width: 80%;
+    }
+    .projslider {
+      -webkit-appearance: none; 
+      width: 80%;
+      height: 5px;
+      background: #0d0349;
+      margin-bottom: 25px;
+    }
+    .projslider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 15px;
+      height: 20px;
+      background: rgb(10, 52, 190);
+      cursor: pointer;
+    }
+    #Farpm{
+      margin-left: 10px;
+    }
+            
+    .menubutton:hover, .menubutton:focus {
+      background-color: #c20a13;
+    }
+    .menudrop {
+      float: right;
+      position: relative;
+      display: inline-block;
+    }
+    .menudrop-content {
+      display: none;
+      position: relative;
+      background-color: #eeaeae;
+      min-width: 160px;
+      overflow: auto;
+      box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+      right: 0;
+      z-index: 1;
+    }
+    .menudrop-content a {
+      color: black;
+      padding: 12px 16px;
+      text-decoration: none;
+      display: block;
+    }
+    .menudrop a:hover {background-color: #ddd;}
+    .show {display: block;}   
+          
+    </style>
+  </head>
+
+<script id="vertex-shader" type="x-shader/x-vertex">
+#version 300 es
+
+in vec4 aPosition;
+in vec4 aNormal;
+in vec2 aTexCoord;
+
+//transformation, modelview e projection
+uniform mat4 uInstanceMatrix, uViewMatrix, uProjectionMatrix;
+
+//changing normal
+uniform mat3 uNormalMatrix;
+
+//light
+uniform vec4 uDirDirection, uSptPosition, uSptDirection;
+
+out vec3 vNormal;
+out vec2 vTexCoord;
+out vec3 lDirDirection;
+out vec3 lSptPosition, lSptDirection;
+
+
+void main()
+{   
+  // pos is vertex position in eye coordinates
+  vec3 pos = (uViewMatrix * uInstanceMatrix * aPosition).xyz; 
+
+  //normal in eye coordinate
+  vNormal = normalize(uNormalMatrix * aNormal.xyz);
+
+  lDirDirection = uDirDirection.xyz;
+  lSptPosition = uSptPosition.xyz - pos;
+
+  lSptDirection = uSptDirection.xyz;
+
+  vTexCoord = aTexCoord;
+  
+  gl_Position = vec4(uProjectionMatrix*uViewMatrix*uInstanceMatrix*aPosition);
+
+}
+</script>
+
+<script id="fragment-shader" type="x-shader/x-fragment">
+#version 300 es
+
+precision mediump float;
+
+in vec3 vNormal;
+in vec2 vTexCoord;
+in vec3 lDirDirection;
+in vec3 lSptPosition, lSptDirection;
+
+//light ambient
+uniform vec4 uWorldAmbient;
+
+//material reflectivity
+uniform vec4 umAmbient, umDiffuse;
+
+//directional light property
+uniform vec4 uDirDiffuse, uDirAmbient;
+
+//spotlight property
+uniform vec4 uSptDiffuse, uSptAmbient;
+uniform float uSptCutoff, uSptExponent;
+
+//attenuation
+uniform float uaLinear, uaQuadratic, uaConstant;
+
+//cartoon
+uniform bool flagCartoon;
+
+//texture
+uniform sampler2D uTexture;
+uniform bool flagTexture;
+
+out vec4 fColor;
+
+void
+main()
+{
+
+  //cartoon shade
+  //c_i = (global ambient light*ambient material) + (ambient light * ambient material) + (diffuse light * diffuse material)
+  // c_s = (global ambient *material ambient) + (light ambient * material ambient)
+
+  //light vector normalization
+  vec3 Lspt = normalize(lSptPosition);
+  vec3 LdirNormalized = normalize(lDirDirection);
+  vec3 LSptDirectionNormalized = normalize(lSptDirection);
+
+  //DIFFUSE LIGHT
+
+    //diffuse coefficents
+    float dirDot = max(dot(LdirNormalized, vNormal), 0.0);
+    float sptDot = max(dot(Lspt, vNormal), 0.0);
+
+    //directional diffuse
+    vec4  dirDiffuse = dirDot * uDirDiffuse;
+    
+    //spotlight diffuse
+    vec4  sptDiffuse;
+    float d = sqrt( pow(Lspt[0],2.0) + pow(Lspt[1],2.0) + pow(Lspt[2],2.0) );
+    float att = 1.0 / (uaConstant + uaLinear*d + uaQuadratic*(pow(d,2.0)) );
+
+    //calculating angle between light direction and the dinstance from the object
+    bool insideCone = dot(LSptDirectionNormalized, Lspt) > cos(uSptCutoff);
+    if(insideCone){ 
+      sptDiffuse = sptDot * uSptDiffuse * pow(dot(LSptDirectionNormalized, Lspt),uSptExponent) * att;
+    }
+    else{
+      sptDiffuse = vec4(0.0, 0.0, 0.0, 1.0);
+    }
+      
+  //Color
+  bool checkDir =  dirDot >= 0.5 ;
+  bool checkSpt =  sptDot >= 0.5 ;
+  vec4 Color1;
+  vec4 ambientcomponent =  (uWorldAmbient * umAmbient) + (uDirAmbient  + uSptAmbient) * umAmbient;
+  vec4 totDiffuse = (dirDiffuse  + sptDiffuse) * umDiffuse;
+
+  if(checkDir && checkSpt ){
+    Color1 = ambientcomponent  + totDiffuse;
+  }
+  else if (!checkDir && !checkSpt){
+    Color1 = ambientcomponent;
+  }
+  else if(!checkDir && checkSpt){
+    Color1 = ambientcomponent + (sptDiffuse*umDiffuse);
+  }
+  else {
+    Color1 = ambientcomponent + (dirDiffuse * umDiffuse);
+  }
+  
+  vec4 Color2;
+
+  if(checkDir){
+    Color2 = ambientcomponent + totDiffuse;
+  }
+  else{
+    Color2 = ambientcomponent + (sptDiffuse * umDiffuse); //sptDiffuse is zero outside the cone
+  }
+  
+  if(flagCartoon){
+    fColor = Color1;
+  }
+  else{
+    fColor = Color2;
+  }
+
+  if(flagTexture){
+    fColor *= (texture(uTexture, vTexCoord));
+  }
+  fColor.a =1.0;
+}
+</script>
+
+<script type="text/javascript" src="../Common/InitShaders.js"></script>
+<script type="text/javascript" src="../Common/MVnew.js"></script>
+<script type="text/javascript" src="homework1.js"></script>
+
+<body>
+
+  
+  <div class="row">
+  
+    <div class="column left" align="center">
+
+      <div> <font font-face="optima" size="+3"> Viewing volume controls: </font>  <br/>
+        <button class = " Far" id = "Farp" style="margin-left: 50px;" > Far+ </button>   
+        <button class = "Far" id = "Farm"> Far- </button>   <br/><br/>
+        <button class = "Near" id = "Nearp" style="margin-left: 50px;" > Near+ </button>   
+        <button class = "Near" id = "Nearm"> Near- </button>   <br/><br/>
+        <button class = "Aspect" id = "Aspect+" style="margin-left: 50px;" > Aspect+ </button>   
+        <button class = "Aspect" id = "Aspect-"> Aspect- </button>   <br/><br/>
+        <div class = "slider" >
+          <font font-face="Georgia"> Fovy: </font><br/>
+          <input class = "projslider" id = "Fovypm" type="range" min="5" max="120" value="45"><br/>
+        </div>
+      </div>
+
+      <div> <font font-face="optima" size="+3"> Viewer position controls: </font>  <br/>
+        <button class = "Theta" id = "Theta+" style="margin-left: 50px;"> Theta+ </button>   
+        <button class = "Theta" id = "Theta-"> Theta- </button> <br/>
+        <button class = "phi" id = "Phi+" style="margin-left: 50px;"> Phi+ </button>           
+        <button class = "phi" id = "Phi-"> Phi- </button>     <br/>
+        <div class = "slider" >
+          <font font-face="Georgia"> Radius: </font><br/>
+          <input class = "projslider" id = "Radiuspm"  type="range" min="0" max="25" value="7">
+        </div>
+      </div> 
+
+    </div>
+
+    <div class="column middle" align="center">
+      <div> <font font-face="optima" size="+3"> Interactive Thumb up </font>  <br/>
+        <canvas id="gl-canvas" width="600" height="600"> //original 1024
+        Oops ... your browser doesn't support the HTML5 canvas element
+        </canvas>
+      
+        <br/>    
+        <button id = "Texture">Texture</button>
+        <button id = "Cartoon">Cartoon shade</button>
+      </div>
+    </div>
+    
+    <div class="menudrop">
+      <button onclick="EventList()" class="menubutton">Bonus</button>
+      <div id="dropdown" class="menudrop-content">
+        <a href="#" id="xButton"> X Rotation </a>
+        <a href="#" id= "yButton"> Y Rotation </a>
+        <a href="#" id= "zButton"> Z Rotation </a>
+        <a href="#" id = "ButtonT"> Toggle rotation </a>
+      </div>
+    </div>
+
+    <div class="column right" align="center">
+      <div> <font font-face="optima" size="+3"> Spotlight controls: </font>  <br/><br/>
+        <div class = "slider" >
+          <font font-face="Georgia"> Cutoff: </font>        
+          <input class = "projslider" id = "Cutoff" type="range" min="0" max="0.5" value="0.07" step="0.01">  <br/>
+          <font font-face="Georgia"> Change X: </font>
+          <input class = "projslider" id = "x" type="range" min="-1" max="1" value="0.23" step="0.05"><br/>
+          <font font-face="Georgia"> Change Y: </font>
+          <input class = "projslider" id = "y" type="range" min="-1" max="1" value="0.3" step="0.05"><br/>
+          <font font-face="Georgia" size="+0.8"> Constant attenuation </font>
+          <input class = "projslider" id = "attC" type="range" min="1" max="7" value="1" step="0.1"><br/>
+          <font font-face="Georgia" size="+0.8"> Linear attenuation: </font>
+          <input class = "projslider" id = "attL" type="range" min="0" max="7" value="0" step="0.1"><br/>
+          <font font-face="Georgia" size="+0.8"> Quadratic attenuation: </font>
+          <input class = "projslider" id = "attQ" type="range" min="0" max="7" value="0" step="0.1"><br/>
+          <font font-face="Georgia" size="+0.8"> Exponent: </font>
+          <input class = "projslider" id = "exp" type="range" min="1" max="2552" value="697" step="1"><br/>
+        </div>
+      </div>            
+    </div>
+
+  </div>
+
+  <script>
+  function EventList() {
+    document.getElementById("dropdown").classList.toggle("show");
+  }
+  
+  window.onclick = function(event) {
+    if (!event.target.matches('.menubutton')) {
+      var menudrops = document.getElementsByClassName("menudrop-content");
+      var i;
+      for (i = 0; i < menudrops.length; i++) {
+        var openmenudrop = menudrops[i];
+        if (openmenudrop.classList.contains('show')) {
+          openmenudrop.classList.remove('show');
+        }
+      }
+    }
+  }
+  </script>  
+
+</body>
+</html>
